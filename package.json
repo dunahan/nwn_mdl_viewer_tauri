@@ -1,0 +1,20 @@
+{
+  "name": "NWN 1 Model Viewer",
+  "version": "1.0.0",
+  "description": "This will be the repo for the Tauri app of the NWN Model Web Viewer (https://github.com/dunahan/nwn_mdl_webviewer).",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/dunahan/nwn_mdl_viewer_tauri.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/dunahan/nwn_mdl_viewer_tauri/issues"
+  },
+  "homepage": "https://github.com/dunahan/nwn_mdl_viewer_tauri#readme"
+}
