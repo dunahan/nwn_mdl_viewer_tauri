@@ -1,0 +1,221 @@
+name: Release
+
+# ── Trigger ──────────────────────────────────────────────────────────────
+#
+# - Push eines Tags "vX.Y.Z"  → Build auf allen Plattformen + Draft-Release
+#   mit den gezippten Bundles als Assets.
+# - workflow_dispatch          → nur Build + Upload als Workflow-Artefakte
+#   (kein Release), praktisch zum Testen der Pipeline ohne einen Tag zu
+#   pushen. Erlaubt außerdem, gegen einen bestimmten Branch/Fork des
+#   nwn_mdl_webviewer-Repos zu bauen (siehe viewer_ref/viewer_repo_url) —
+#   nützlich, solange dessen Tauri-Patches noch nicht auf main gemerged
+#   sind (siehe TAURI_INTEGRATION_NOTES.md).
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+  workflow_dispatch:
+    inputs:
+      viewer_ref:
+        description: 'nwn_mdl_webviewer: Branch/Tag zum Bauen (Default: main)'
+        required: false
+        default: 'main'
+      viewer_repo_url:
+        description: 'nwn_mdl_webviewer: abweichende Repo-URL (z. B. eigener Fork). Leer = Standard-Repo.'
+        required: false
+        default: ''
+
+# Verhindert überlappende Läufe für denselben Ref (z. B. bei versehentlichem
+# doppeltem Tag-Push) — bricht den älteren Lauf ab statt beide parallel
+# laufen zu lassen.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: true
+
+# Minimal-Berechtigung auf Workflow-Ebene; der release-Job hebt sie gezielt
+# auf contents:write an (Least Privilege — der build-Job braucht das nicht).
+permissions:
+  contents: read
+
+jobs:
+  # ══════════════════════════════════════════════════════════════════════
+  #  BUILD — Matrix über Windows / macOS (universal) / Linux
+  # ══════════════════════════════════════════════════════════════════════
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: windows-latest
+            label: windows-x64
+            rust_target: x86_64-pc-windows-msvc
+            tauri_args: '--target x86_64-pc-windows-msvc'
+
+          # Universal-Binary (Apple Silicon + Intel in einem Bundle) statt
+          # zwei getrennter Artefakte — bewusste Abweichung von Tauris
+          # eigenem Quickstart-Beispiel (das zwei separate macos-latest-
+          # Matrixeinträge je Architektur nutzt). Vorteil: EIN Download für
+          # alle Mac-Nutzer statt "welchen Chip habe ich?". Nachteil: baut
+          # beide Architekturen, dauert entsprechend länger. Falls das mal
+          # stört: einfach durch zwei Einträge (aarch64-apple-darwin /
+          # x86_64-apple-darwin, je mit --target statt universal-apple-darwin)
+          # ersetzen — siehe https://tauri.app/distribute/pipelines/github/
+          - platform: macos-latest
+            label: macos-universal
+            rust_target: 'aarch64-apple-darwin,x86_64-apple-darwin'
+            tauri_args: '--target universal-apple-darwin'
+
+          # Bewusst 22.04 statt "ubuntu-latest": Linux-Binaries sollten
+          # gegen die ÄLTESTE glibc gebaut werden, die noch unterstützt
+          # werden soll (Kompatibilität ist abwärtsgerichtet, nicht
+          # aufwärts) — ubuntu-latest würde irgendwann unbemerkt auf 24.04
+          # springen und Nutzer mit älteren Distros aussperren.
+          - platform: ubuntu-22.04
+            label: linux-x64
+            rust_target: x86_64-unknown-linux-gnu
+            tauri_args: ''
+
+    runs-on: ${{ matrix.platform }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # Tauri v2 braucht webkit2gtk 4.1 (NICHT 4.0, das war v1) —
+      # patchelf + libfuse2 werden fürs AppImage-Bundling benötigt.
+      - name: Install Linux system dependencies
+        if: matrix.platform == 'ubuntu-22.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            build-essential \
+            curl \
+            wget \
+            file \
+            libxdo-dev \
+            libssl-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            patchelf \
+            libfuse2
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.rust_target }}
+
+      - name: Rust build cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: './src-tauri -> target'
+
+      # npm ci löst auch postinstall aus (scripts/setup-viewer.mjs), das
+      # nwn_mdl_webviewer nach viewer/ klont. VIEWER_REPO_REF/URL erlauben,
+      # das für Testläufe zu überschreiben (siehe workflow_dispatch-Inputs
+      # oben) — für Tag-Push-Releases greift immer der echte Default (main
+      # des offiziellen Repos), da inputs.* dort leer ist.
+      - name: Install dependencies (also vendors viewer/)
+        run: npm ci
+        env:
+          VIEWER_REPO_REF: ${{ inputs.viewer_ref || 'main' }}
+          VIEWER_REPO_URL: ${{ inputs.viewer_repo_url || '' }}
+
+      - name: Determine version string
+        id: version
+        shell: bash
+        run: |
+          if [[ "${{ github.ref }}" == refs/tags/* ]]; then
+            echo "value=${{ github.ref_name }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "value=dev-$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
+          fi
+
+      # WICHTIG: das "--" zwischen "tauri build" und "--target ..." ist
+      # zwingend, sonst interpretiert npm selbst den Parameter (bricht mit
+      # "unexpected argument" ab) statt ihn an die Tauri-CLI durchzureichen.
+      - name: Build Tauri app
+        run: npm run tauri build -- ${{ matrix.tauri_args }}
+
+      # Pfad dynamisch statt hart codiert ermitteln — der exakte Unterordner
+      # unterscheidet sich je nach --target (z. B. bei universal-apple-darwin
+      # liegt er unter target/universal-apple-darwin/release/bundle statt
+      # direkt unter target/release/bundle).
+      - name: Locate bundle output
+        id: bundle
+        shell: bash
+        run: |
+          BUNDLE_DIR=$(find src-tauri/target -type d -name bundle | head -n1)
+          if [ -z "$BUNDLE_DIR" ]; then
+            echo "::error::Kein bundle/-Ausgabeverzeichnis unter src-tauri/target gefunden."
+            exit 1
+          fi
+          echo "Gefunden: $BUNDLE_DIR"
+          find "$BUNDLE_DIR" -maxdepth 2 -type f
+          echo "dir=$BUNDLE_DIR" >> "$GITHUB_OUTPUT"
+
+      - name: Zip bundle output (Unix)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          ZIP_NAME="nwn-mdl-viewer-app-${{ steps.version.outputs.value }}-${{ matrix.label }}.zip"
+          (cd "${{ steps.bundle.outputs.dir }}" && zip -r "$GITHUB_WORKSPACE/$ZIP_NAME" .)
+          echo "zip_name=$ZIP_NAME" >> "$GITHUB_ENV"
+
+      - name: Zip bundle output (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          # steps.bundle.outputs.dir kommt aus Git-Bash "find" (voriger Schritt
+          # läuft bewusst mit shell: bash, auch hier unter Windows) und liefert
+          # daher Forward-Slashes — hier konsequent beibehalten statt mit "\"
+          # zu mischen (PowerShell akzeptiert beides, aber gemischt ist unnötig
+          # verwirrend).
+          $zipName = "nwn-mdl-viewer-app-${{ steps.version.outputs.value }}-${{ matrix.label }}.zip"
+          Compress-Archive -Path "${{ steps.bundle.outputs.dir }}/*" -DestinationPath $zipName
+          echo "zip_name=$zipName" >> $env:GITHUB_ENV
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: bundle-${{ matrix.label }}
+          path: ${{ env.zip_name }}
+          if-no-files-found: error
+
+  # ══════════════════════════════════════════════════════════════════════
+  #  RELEASE — nur bei echtem Tag-Push, sammelt alle Plattform-Zips ein
+  # ══════════════════════════════════════════════════════════════════════
+  release:
+    name: Publish GitHub Release
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download all build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          pattern: bundle-*
+          merge-multiple: true
+
+      - name: List downloaded files
+        run: ls -la artifacts/
+
+      # draft: true — bewusst KEIN vollautomatisches Veröffentlichen.
+      # Erlaubt einen kurzen manuellen Blick auf die generierten Release-
+      # Notes und angehängten Dateien, bevor der Release live geht. Für
+      # vollautomatische Releases hier einfach auf false setzen.
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: artifacts/*.zip
+          generate_release_notes: true
+          draft: true

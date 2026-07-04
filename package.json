@@ -3,8 +3,23 @@
   "version": "1.0.0",
   "description": "This will be the repo for the Tauri app of the NWN Model Web Viewer (https://github.com/dunahan/nwn_mdl_webviewer).",
   "main": "index.js",
+  "private": true,
   "scripts": {
+    "postinstall": "node scripts/setup-viewer.mjs",
+    "setup": "node scripts/setup-viewer.mjs",
+    "dev": "node scripts/dev-server.mjs",
+    "build": "node scripts/build-viewer.mjs",
+    "build:web": "node scripts/build-web-bundle.mjs",
+    "tauri": "tauri",
     "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "dependencies": {
+    "@tauri-apps/api": "^2",
+    "@tauri-apps/plugin-dialog": "^2",
+    "@tauri-apps/plugin-fs": "^2"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2"
   },
   "repository": {
     "type": "git",
