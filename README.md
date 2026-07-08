@@ -27,9 +27,6 @@ GitHub Pages / manual hosting — unrelated to the Tauri app itself):
 npm run build:web    # runs viewer/build.py -> viewer/dist/, requires Python 3
 ```
 
-See [`TAURI_INTEGRATION_NOTES.md`](./TAURI_INTEGRATION_NOTES.md) for architecture
-decisions, known gotchas, and open TODOs for the Tauri integration.
-
 **Requirements:** Node.js, Rust + Cargo (Tauri toolchain). Python 3 is
 **only** needed for the optional `npm run build:web` web-bundle path, not
 for `npm run tauri dev`/`build`.
