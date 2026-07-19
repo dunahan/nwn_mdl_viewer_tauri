@@ -79,7 +79,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       # Tauri v2 braucht webkit2gtk 4.1 (NICHT 4.0, das war v1) —
       # patchelf + libfuse2 werden fürs AppImage-Bundling benötigt.
@@ -101,7 +101,7 @@ jobs:
             libfuse2
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: npm
@@ -182,7 +182,7 @@ jobs:
           echo "zip_name=$zipName" >> $env:GITHUB_ENV
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: bundle-${{ matrix.label }}
           path: ${{ env.zip_name }}
@@ -200,7 +200,7 @@ jobs:
       contents: write
     steps:
       - name: Download all build artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           path: artifacts
           pattern: bundle-*
