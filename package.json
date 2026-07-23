@@ -1,6 +1,6 @@
 {
   "name": "NWN 1 Model Viewer",
-  "version": "1.0.0",
+  "version": "1.9.1",
   "description": "This will be the repo for the Tauri app of the NWN Model Web Viewer (https://github.com/dunahan/nwn_mdl_webviewer).",
   "main": "index.js",
   "private": true,
