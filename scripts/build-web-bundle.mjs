@@ -46,9 +46,20 @@ if (!pythonBin) {
   process.exit(1);
 }
 
-console.log(`[build-web-bundle] $ ${pythonBin} build.py  (cwd: viewer/)`);
+let version = '';
 try {
-  execFileSync(pythonBin, ['build.py'], { cwd: VIEWER_DIR, stdio: 'inherit' });
+  version = execFileSync(
+    'git', ['describe', '--tags', '--always'],
+    { cwd: VIEWER_DIR }
+  ).toString().trim();
+} catch {
+  // No Git repository or tags reachable — then version remains empty,
+  // build.py falls back to the default (no version string).
+}
+
+console.log(`[build-web-bundle] $ ${pythonBin} build.py --version ${version}  (cwd: viewer/)`);
+try {
+  execFileSync(pythonBin, ['build.py', '--version', version], { cwd: VIEWER_DIR, stdio: 'inherit' });
   console.log('[build-web-bundle] Fertig — viewer/dist/ ist bereit für Hosting (z. B. GitHub Pages).');
 } catch (err) {
   console.error('[build-web-bundle] build.py fehlgeschlagen:', err.message);
