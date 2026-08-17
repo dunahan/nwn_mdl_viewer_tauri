@@ -83,22 +83,28 @@ jobs:
 
       # Tauri v2 braucht webkit2gtk 4.1 (NICHT 4.0, das war v1) —
       # patchelf + libfuse2 werden fürs AppImage-Bundling benötigt.
+      # ponytail: apt-get install (v. a. libwebkit2gtk-4.1-dev) ist der
+      # langsamste Einzelschritt auf Linux — via actions/cache gecacht statt
+      # bei jedem Lauf neu von archive.ubuntu.com zu laden. Cache-Key hängt
+      # am OS + der Paketliste; "version" hoch zählen, falls die Paketliste
+      # sich ändert und der alte Cache-Inhalt verworfen werden soll.
       - name: Install Linux system dependencies
         if: matrix.platform == 'ubuntu-22.04'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            libwebkit2gtk-4.1-dev \
-            build-essential \
-            curl \
-            wget \
-            file \
-            libxdo-dev \
-            libssl-dev \
-            libayatana-appindicator3-dev \
-            librsvg2-dev \
-            patchelf \
+        uses: awalsh128/cache-apt-pkgs-action@v1
+        with:
+          packages: >-
+            libwebkit2gtk-4.1-dev
+            build-essential
+            curl
+            wget
+            file
+            libxdo-dev
+            libssl-dev
+            libayatana-appindicator3-dev
+            librsvg2-dev
+            patchelf
             libfuse2
+          version: 1.0
 
       - name: Setup Node.js
         uses: actions/setup-node@v7
@@ -115,6 +121,11 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: './src-tauri -> target'
+          # ponytail: Cache auch bei rotem Build sichern (z. B. wenn nur die
+          # Windows-Matrix-Leg failt) — sonst verliert ein einzelner
+          # fehlgeschlagener Lauf den kompletten Compile-Fortschritt dieser
+          # Plattform für den nächsten Versuch.
+          cache-on-failure: true
 
       # npm ci löst auch postinstall aus (scripts/setup-viewer.mjs), das
       # nwn_mdl_webviewer nach viewer/ klont. VIEWER_REPO_REF/URL erlauben,
@@ -122,7 +133,7 @@ jobs:
       # oben) — für Tag-Push-Releases greift immer der echte Default (main
       # des offiziellen Repos), da inputs.* dort leer ist.
       - name: Install dependencies (also vendors viewer/)
-        run: npm ci
+        run: npm ci --no-audit --no-fund
         env:
           VIEWER_REPO_REF: ${{ inputs.viewer_ref || 'main' }}
           VIEWER_REPO_URL: ${{ inputs.viewer_repo_url || '' }}
