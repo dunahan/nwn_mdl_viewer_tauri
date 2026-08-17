@@ -43,7 +43,12 @@ try {
       process.exit(1);
     }
     console.log(`[setup-viewer] Klone ${REPO_URL} (${REPO_REF}) nach viewer/`);
-    run('git', ['clone', '--branch', REPO_REF, '--single-branch', REPO_URL, VIEWER_DIR], REPO_ROOT);
+    // ponytail: --depth 1, da viewer/ als Vendor-Snapshot genutzt wird — der
+    // volle Commit-Verlauf wird von build-viewer.mjs/dev-server.mjs nie
+    // gelesen. Spart Netzwerk + .git-Größe bei jedem Setup-Lauf (u. a. 3x
+    // pro Release-Workflow-Matrix). Der Update-Zweig oben (fetch REPO_REF +
+    // reset --hard) funktioniert unverändert mit einem Shallow-Clone.
+    run('git', ['clone', '--depth', '1', '--branch', REPO_REF, '--single-branch', REPO_URL, VIEWER_DIR], REPO_ROOT);
   }
   console.log('[setup-viewer] Fertig. viewer/ ist bereit.');
 } catch (err) {
